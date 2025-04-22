@@ -1,9 +1,12 @@
 import axios from 'axios';
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Header from '../components/Header';
 import Tabs from '../components/Tabs';
 import CoinCard from '../components/CoinCard';
 import CoinDetails from '../components/CoinDetails';
+import MarketOverview from '../components/MarketOverview';
+import Footer from '../components/Footer';
 
 export async function getServerSideProps() {
   const res = await axios.get(
@@ -90,20 +93,52 @@ export default function Home({ coins }) {
   }, [darkMode]);
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'}`}>
+    <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'} transition-colors duration-300`}>
       <Header darkMode={darkMode} setDarkMode={setDarkMode} search={search} setSearch={setSearch} />
-      <Tabs selectedTab={selectedTab} setSelectedTab={setSelectedTab} />
+      
+      <MarketOverview coins={coinsWithPredictions.slice(0, 5)} darkMode={darkMode} />
+      
+      <Tabs selectedTab={selectedTab} setSelectedTab={setSelectedTab} darkMode={darkMode} />
+      
       <main className="container mx-auto px-4 py-8">
-        {!selectedCoin ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredCoins.map((coin) => (
-              <CoinCard key={coin.id} coin={coin} onClick={() => setSelectedCoin(coin)} />
-            ))}
-          </div>
-        ) : (
-          <CoinDetails coin={selectedCoin} onBack={() => setSelectedCoin(null)} />
-        )}
+        <AnimatePresence mode="wait">
+          {!selectedCoin ? (
+            <motion.div 
+              key="coins-grid"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+            >
+              {filteredCoins.length > 0 ? (
+                filteredCoins.map((coin) => (
+                  <CoinCard key={coin.id} coin={coin} onClick={() => setSelectedCoin(coin)} darkMode={darkMode} />
+                ))
+              ) : (
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="col-span-full text-center py-10 text-xl"
+                >
+                  No coins match your criteria. Try adjusting your search.
+                </motion.p>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="coin-details"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <CoinDetails coin={selectedCoin} onBack={() => setSelectedCoin(null)} darkMode={darkMode} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
+      
+      <Footer darkMode={darkMode} />
     </div>
   );
 }
