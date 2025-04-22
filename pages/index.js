@@ -1,6 +1,8 @@
+"use client"
 import axios from 'axios';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as tf from '@tensorflow/tfjs';
 import Header from '../components/Header';
 import Tabs from '../components/Tabs';
 import CoinCard from '../components/CoinCard';
@@ -10,7 +12,7 @@ import Footer from '../components/Footer';
 
 export async function getServerSideProps() {
   const res = await axios.get(
-    'https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&order=market_cap_desc&per_page=100&page=1&sparkline=true'
+    'https://api.coingecko.com/api/v3/coins/markets?vs_currency=inr&order=market_cap_desc&per_page=1000&page=1&sparkline=true'
   );
 
   const coins = res.data.map((coin) => ({
@@ -26,6 +28,8 @@ export async function getServerSideProps() {
     sparkline_in_7d: coin.sparkline_in_7d,
   }));
 
+  
+
   return { props: { coins } };
 }
 
@@ -34,9 +38,57 @@ export default function Home({ coins }) {
   const [darkMode, setDarkMode] = useState(false);
   const [selectedTab, setSelectedTab] = useState('all');
   const [selectedCoin, setSelectedCoin] = useState(null);
+  const [model, setModel] = useState(null);
+  const [predictions, setPredictions] = useState([]);
+
+  useEffect(() => {
+    const createHybridModel = () => {
+      const inputShape = [30, 1]; // 30 days of data, 1 feature (price)
+      const model = tf.sequential();
+      model.add(tf.layers.lstm({ units: 64, returnSequences: true, inputShape }));
+      model.add(tf.layers.gru({ units: 64 }));
+      model.add(tf.layers.dense({ units: 1 }));
+      model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+      return model;
+    };
+
+    setModel(createHybridModel());
+
+    // Ensure WebGL backend is used for better performance
+    tf.setBackend('webgl');
+  }, []);
+
+  useEffect(() => {
+    if (model) {
+      const trainAndPredict = async () => {
+        const trainingData = coins.map((coin) => coin.sparkline_in_7d.price.slice(-30));
+        const labels = coins.map((coin) => coin.current_price);
+
+        const xs = tf.tensor3d(trainingData.map((data) => data.map((price) => [price])));
+        const ys = tf.tensor2d(labels.map((price) => [price]));
+
+        if (model.isTraining) return;
+        model.isTraining = true;
+
+        // Reduce epochs to 5 and add batch size of 32
+        await model.fit(xs, ys, { epochs: 5, batchSize: 32 });
+        model.isTraining = false;
+
+        const predictions = xs.arraySync().map((data) => {
+          const inputTensor = tf.tensor3d([data]);
+          const prediction = model.predict(inputTensor).arraySync()[0][0];
+          return prediction;
+        });
+
+        setPredictions(predictions);
+      };
+
+      trainAndPredict();
+    }
+  }, [model]);
 
   // Add predictions and descriptions for each coin
-  const coinsWithPredictions = coins.map((coin) => {
+  const coinsWithPredictions = coins.map((coin, index) => {
     // Calculate future profitability based on 7-day sparkline data
     const sparkline = coin.sparkline_in_7d?.price || [];
     const futureProfitability =
@@ -57,6 +109,7 @@ export default function Home({ coins }) {
       predicted_profitability: coin.predicted_profitability || Math.random() * 0.2, // Placeholder for predicted profitability
       future_profitability: futureProfitability,
       description,
+      predicted_price: predictions[index] ? predictions[index].toFixed(2) : 'Loading...',
     };
   });
 
@@ -91,6 +144,10 @@ export default function Home({ coins }) {
       document.body.classList.remove('dark-mode');
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    console.log('Coins with Predictions:', coinsWithPredictions);
+  }, [coinsWithPredictions]);
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'} transition-colors duration-300`}>
